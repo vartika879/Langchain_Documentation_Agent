@@ -1,26 +1,28 @@
 # ingestion/file_finder.py
 
 from pathlib import Path
-#from config import REPO_LOCAL_PATH, TRACKED_PACKAGE
-from langchain_documentation.config import REPO_LOCAL_PATH, TRACKED_PACKAGE
+from langchain_documentation.config import REPO_LOCAL_PATH, TRACKED_PACKAGES
 
 
-def find_python_files() -> list[Path]:
-    """Return all .py files inside the tracked package, excluding tests."""
-    target_dir = REPO_LOCAL_PATH / TRACKED_PACKAGE
+def find_python_files() -> list[tuple[Path, Path]]:
+    """Return (file_path, package_root) pairs for all .py files across tracked packages."""
+    all_results = []
 
-    all_files = target_dir.rglob("*.py")
+    for package in TRACKED_PACKAGES:
+        package_root = REPO_LOCAL_PATH / package
 
-    filtered = [
-        f for f in all_files
-        if "test" not in f.parts and "__pycache__" not in f.parts
-    ]
+        if not package_root.exists():
+            print(f"Warning: {package_root} does not exist, skipping.")
+            continue
 
-    return filtered
+        files = package_root.rglob("*.py")
+        filtered = [
+            f for f in files
+            if not any("test" in part.lower() for part in f.parts)
+            and "__pycache__" not in f.parts
+        ]
 
+        for f in filtered:
+            all_results.append((f, package_root))
 
-if __name__ == "__main__":
-    
-    files = find_python_files()
-    print(f"Found {len(files)} files")
-    print(files[:5])  # pehli 5 dikhao sample ke liye
+    return all_results

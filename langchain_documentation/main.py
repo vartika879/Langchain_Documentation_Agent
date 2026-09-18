@@ -1,24 +1,41 @@
 # main.py
 
+import logging
+from datetime import datetime
+from pathlib import Path
+
+from langchain_documentation.ingestion.repo_manager import ensure_repo
 from langchain_documentation.ingestion.file_finder import find_python_files
 from langchain_documentation.parsing.ast_parser import parse_file
 from langchain_documentation.storage.models import init_db, SessionLocal, FunctionEntry, ChangeLog
 
+LOG_DIR = Path(__file__).resolve().parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    filename=LOG_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(message)s",
+)
+
 
 def run_ingestion():
+    logging.info("Starting ingestion run")
+
+    ensure_repo()
     init_db()
     session = SessionLocal()
 
     files = find_python_files()
-    print(f"Processing {len(files)} files...")
+    logging.info(f"Processing {len(files)} files...")
 
-    seen_qualified_names = set()  # taaki removed-detection ke liye track kar sakein
+    seen_qualified_names = set()
     new_count = 0
     updated_count = 0
     unchanged_count = 0
 
-    for file_path in files:
-        entries = parse_file(file_path)
+    for file_path,package_root in files:
+        entries = parse_file(file_path,package_root)
 
         for entry in entries:
             qname = entry["qualified_name"]
@@ -27,7 +44,6 @@ def run_ingestion():
             existing = session.query(FunctionEntry).filter_by(qualified_name=qname).first()
 
             if existing is None:
-                # naya function/class
                 db_entry = FunctionEntry(
                     name=entry["name"],
                     qualified_name=qname,
@@ -47,7 +63,6 @@ def run_ingestion():
                 new_count += 1
 
             else:
-                # existing hai — compare karo
                 sig_changed = existing.signature != entry.get("signature")
                 doc_changed = existing.docstring != entry["docstring"]
 
@@ -74,7 +89,6 @@ def run_ingestion():
                 else:
                     unchanged_count += 1
 
-    # ab removed-functions detect karo
     all_db_entries = session.query(FunctionEntry).all()
     removed_count = 0
     for db_entry in all_db_entries:
@@ -89,7 +103,11 @@ def run_ingestion():
             removed_count += 1
 
     session.commit()
-    print(f"New: {new_count}, Updated: {updated_count}, Unchanged: {unchanged_count}, Removed: {removed_count}")
+    logging.info(
+        f"New: {new_count}, Updated: {updated_count}, "
+        f"Unchanged: {unchanged_count}, Removed: {removed_count}"
+    )
+    logging.info("Ingestion run complete")
 
 
 if __name__ == "__main__":
